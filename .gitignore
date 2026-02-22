@@ -1,0 +1,19 @@
+# Build outputs
+build/
+cmake-build-*/
+
+# JUCE generated/plugin artifacts
+*.vst3
+*.component
+*.app
+*_artefacts/
+
+# macOS
+.DS_Store
+
+# IDE/editor
+.vscode/
+.idea/
+
+# Logs
+*.log

@@ -17,3 +17,6 @@ cmake-build-*/
 
 # Logs
 *.log
+
+# Local JUCE checkout
+JUCE/

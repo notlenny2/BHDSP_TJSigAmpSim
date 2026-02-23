@@ -104,6 +104,21 @@ void updateMeterLevel(std::atomic<float>& meter, float newPeak)
     const float coeff = newPeak > current ? attack : release;
     meter.store(current + coeff * (newPeak - current), std::memory_order_relaxed);
 }
+
+float readInterpolatedSample(const juce::AudioBuffer<float>& buffer, int channel, double samplePos)
+{
+    const int numSamples = buffer.getNumSamples();
+    if (numSamples <= 0)
+        return 0.0f;
+
+    const int base = juce::jlimit(0, numSamples - 1, static_cast<int>(samplePos));
+    const int next = juce::jmin(numSamples - 1, base + 1);
+    const float frac = static_cast<float>(samplePos - static_cast<double>(base));
+
+    const float s0 = buffer.getSample(channel, base);
+    const float s1 = buffer.getSample(channel, next);
+    return s0 + frac * (s1 - s0);
+}
 } // namespace
 
 BackhouseAmpSimAudioProcessor::BackhouseAmpSimAudioProcessor()
@@ -150,10 +165,12 @@ void BackhouseAmpSimAudioProcessor::processBlock(juce::AudioBuffer<float>& buffe
 
     const auto totalIn = getTotalNumInputChannels();
     const auto totalOut = getTotalNumOutputChannels();
-    updateMeterLevel(inputMeterLevel, computePeakLevel(buffer, totalIn));
 
     for (auto ch = totalIn; ch < totalOut; ++ch)
         buffer.clear(ch, 0, buffer.getNumSamples());
+
+    renderTestDI(buffer);
+    updateMeterLevel(inputMeterLevel, computePeakLevel(buffer, totalIn));
 
     const int amp = static_cast<int>(apvts.getRawParameterValue(ids::ampType)->load());
     const int guitarProfile = static_cast<int>(apvts.getRawParameterValue(ids::guitarProfile)->load());
@@ -383,6 +400,214 @@ bool BackhouseAmpSimAudioProcessor::hasUserIR() const
 juce::String BackhouseAmpSimAudioProcessor::getUserIRName() const
 {
     return cabSimulator.getUserIRName();
+}
+
+bool BackhouseAmpSimAudioProcessor::loadTestDIFile(const juce::File& file)
+{
+    if (!file.existsAsFile())
+        return false;
+
+    juce::AudioFormatManager formatManager;
+    formatManager.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(file));
+    if (reader == nullptr || reader->lengthInSamples <= 0)
+        return false;
+
+    juce::AudioBuffer<float> loaded(static_cast<int>(reader->numChannels), static_cast<int>(reader->lengthInSamples));
+    if (!reader->read(&loaded, 0, loaded.getNumSamples(), 0, true, true))
+        return false;
+
+    const juce::ScopedLock lock(testDILock);
+    testDIAudio = std::move(loaded);
+    testDIFileName = file.getFileName();
+    testDISourceSampleRate = reader->sampleRate > 1.0 ? reader->sampleRate : 44100.0;
+
+    testDIPlayheadSamples.store(0.0, std::memory_order_relaxed);
+    testDILoopStartSamples.store(0.0, std::memory_order_relaxed);
+    testDILoopEndSamples.store(static_cast<double>(testDIAudio.getNumSamples() - 1), std::memory_order_relaxed);
+    testDIPlaying.store(false, std::memory_order_relaxed);
+    return true;
+}
+
+void BackhouseAmpSimAudioProcessor::clearTestDIFile()
+{
+    const juce::ScopedLock lock(testDILock);
+    testDIAudio.setSize(0, 0);
+    testDIFileName.clear();
+    testDIPlayheadSamples.store(0.0, std::memory_order_relaxed);
+    testDILoopStartSamples.store(0.0, std::memory_order_relaxed);
+    testDILoopEndSamples.store(0.0, std::memory_order_relaxed);
+    testDIPlaying.store(false, std::memory_order_relaxed);
+}
+
+bool BackhouseAmpSimAudioProcessor::hasTestDIFile() const
+{
+    const juce::ScopedLock lock(testDILock);
+    return testDIAudio.getNumSamples() > 0;
+}
+
+juce::String BackhouseAmpSimAudioProcessor::getTestDIFileName() const
+{
+    const juce::ScopedLock lock(testDILock);
+    return testDIFileName;
+}
+
+double BackhouseAmpSimAudioProcessor::getTestDIDurationSeconds() const
+{
+    const juce::ScopedLock lock(testDILock);
+    if (testDIAudio.getNumSamples() <= 0 || testDISourceSampleRate <= 0.0)
+        return 0.0;
+
+    return static_cast<double>(testDIAudio.getNumSamples()) / testDISourceSampleRate;
+}
+
+void BackhouseAmpSimAudioProcessor::setTestDIPositionSeconds(double seconds)
+{
+    const juce::ScopedLock lock(testDILock);
+    if (testDIAudio.getNumSamples() <= 0)
+        return;
+
+    const double maxSamples = static_cast<double>(juce::jmax(0, testDIAudio.getNumSamples() - 1));
+    const double targetSamples = juce::jlimit(0.0, maxSamples, seconds * testDISourceSampleRate);
+    testDIPlayheadSamples.store(targetSamples, std::memory_order_relaxed);
+}
+
+double BackhouseAmpSimAudioProcessor::getTestDIPositionSeconds() const
+{
+    const juce::ScopedLock lock(testDILock);
+    if (testDISourceSampleRate <= 0.0)
+        return 0.0;
+
+    return testDIPlayheadSamples.load(std::memory_order_relaxed) / testDISourceSampleRate;
+}
+
+void BackhouseAmpSimAudioProcessor::setTestDILoopRangeSeconds(double startSeconds, double endSeconds)
+{
+    const juce::ScopedLock lock(testDILock);
+    if (testDIAudio.getNumSamples() <= 1)
+        return;
+
+    const double maxSamples = static_cast<double>(juce::jmax(1, testDIAudio.getNumSamples() - 1));
+    double start = juce::jlimit(0.0, maxSamples, startSeconds * testDISourceSampleRate);
+    double end = juce::jlimit(0.0, maxSamples, endSeconds * testDISourceSampleRate);
+
+    if (end <= start + 1.0)
+        end = juce::jmin(maxSamples, start + 1.0);
+
+    testDILoopStartSamples.store(start, std::memory_order_relaxed);
+    testDILoopEndSamples.store(end, std::memory_order_relaxed);
+}
+
+double BackhouseAmpSimAudioProcessor::getTestDILoopStartSeconds() const
+{
+    const juce::ScopedLock lock(testDILock);
+    if (testDISourceSampleRate <= 0.0)
+        return 0.0;
+
+    return testDILoopStartSamples.load(std::memory_order_relaxed) / testDISourceSampleRate;
+}
+
+double BackhouseAmpSimAudioProcessor::getTestDILoopEndSeconds() const
+{
+    const juce::ScopedLock lock(testDILock);
+    if (testDISourceSampleRate <= 0.0)
+        return 0.0;
+
+    return testDILoopEndSamples.load(std::memory_order_relaxed) / testDISourceSampleRate;
+}
+
+std::vector<float> BackhouseAmpSimAudioProcessor::getTestDIWaveformPeaks(int numPoints) const
+{
+    std::vector<float> peaks;
+    if (numPoints <= 0)
+        return peaks;
+
+    peaks.resize(static_cast<size_t>(numPoints), 0.0f);
+
+    const juce::ScopedLock lock(testDILock);
+    const int sourceSamples = testDIAudio.getNumSamples();
+    const int sourceChannels = testDIAudio.getNumChannels();
+    if (sourceSamples <= 0 || sourceChannels <= 0)
+        return peaks;
+
+    const double samplesPerPoint = static_cast<double>(sourceSamples) / static_cast<double>(numPoints);
+
+    for (int point = 0; point < numPoints; ++point)
+    {
+        const int start = juce::jlimit(0, sourceSamples - 1, static_cast<int>(std::floor(point * samplesPerPoint)));
+        const int end = juce::jlimit(start + 1, sourceSamples, static_cast<int>(std::ceil((point + 1) * samplesPerPoint)));
+
+        float maxAbs = 0.0f;
+        for (int ch = 0; ch < sourceChannels; ++ch)
+        {
+            for (int sample = start; sample < end; ++sample)
+                maxAbs = juce::jmax(maxAbs, std::abs(testDIAudio.getSample(ch, sample)));
+        }
+
+        peaks[static_cast<size_t>(point)] = juce::jlimit(0.0f, 1.0f, maxAbs);
+    }
+
+    return peaks;
+}
+
+void BackhouseAmpSimAudioProcessor::renderTestDI(juce::AudioBuffer<float>& buffer)
+{
+    if (!testDIEnabled.load(std::memory_order_relaxed) || !testDIPlaying.load(std::memory_order_relaxed))
+        return;
+
+    const juce::ScopedLock lock(testDILock);
+    const int sourceSamples = testDIAudio.getNumSamples();
+    const int sourceChannels = testDIAudio.getNumChannels();
+    if (sourceSamples <= 1 || sourceChannels <= 0 || testDISourceSampleRate <= 0.0 || getSampleRate() <= 0.0)
+        return;
+
+    const int targetChannels = juce::jmax(1, getTotalNumInputChannels());
+    const int blockSamples = buffer.getNumSamples();
+
+    double playhead = testDIPlayheadSamples.load(std::memory_order_relaxed);
+    double loopStart = testDILoopStartSamples.load(std::memory_order_relaxed);
+    double loopEnd = testDILoopEndSamples.load(std::memory_order_relaxed);
+
+    const double sourceMax = static_cast<double>(sourceSamples - 1);
+    loopStart = juce::jlimit(0.0, sourceMax, loopStart);
+    loopEnd = juce::jlimit(0.0, sourceMax, loopEnd);
+    if (loopEnd <= loopStart + 1.0)
+        loopEnd = juce::jmin(sourceMax, loopStart + 1.0);
+
+    const bool looping = testDILoopEnabled.load(std::memory_order_relaxed);
+    const double step = testDISourceSampleRate / getSampleRate();
+
+    for (int i = 0; i < blockSamples; ++i)
+    {
+        if (playhead >= sourceMax)
+        {
+            if (looping)
+                playhead = loopStart;
+            else
+            {
+                testDIPlaying.store(false, std::memory_order_relaxed);
+                for (int ch = 0; ch < targetChannels && ch < buffer.getNumChannels(); ++ch)
+                    buffer.setSample(ch, i, 0.0f);
+                continue;
+            }
+        }
+
+        for (int ch = 0; ch < targetChannels && ch < buffer.getNumChannels(); ++ch)
+        {
+            const int sourceCh = juce::jmin(ch, sourceChannels - 1);
+            buffer.setSample(ch, i, readInterpolatedSample(testDIAudio, sourceCh, playhead));
+        }
+
+        playhead += step;
+
+        if (looping)
+        {
+            while (playhead >= loopEnd)
+                playhead = loopStart + (playhead - loopEnd);
+        }
+    }
+
+    testDIPlayheadSamples.store(playhead, std::memory_order_relaxed);
 }
 
 bool BackhouseAmpSimAudioProcessor::exportProfilesToJson(const juce::File& file) const

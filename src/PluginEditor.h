@@ -2,6 +2,7 @@
 
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_gui_extra/juce_gui_extra.h>
+#include <vector>
 
 #if JucePlugin_Build_Standalone
  #include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
@@ -17,7 +18,10 @@ public:
     ~BackhouseAmpSimAudioProcessorEditor() override = default;
 
     void paint(juce::Graphics&) override;
+    void paintOverChildren(juce::Graphics&) override;
     void resized() override;
+    void mouseDown(const juce::MouseEvent&) override;
+    void mouseDrag(const juce::MouseEvent&) override;
 
 private:
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
@@ -36,6 +40,11 @@ private:
 #if JucePlugin_Build_Standalone
     void attachStandaloneDeviceManager();
     void refreshStandaloneMidiDeviceLists();
+    void refreshTestDISection();
+    void updateDITimelineCache();
+    void drawDITimeline(juce::Graphics&) const;
+    double timelineTimeFromX(int x) const;
+    int timelineXFromTime(double seconds) const;
 #endif
 
     BackhouseAmpSimAudioProcessor& pluginProcessor;
@@ -86,12 +95,25 @@ private:
 
 #if JucePlugin_Build_Standalone
     juce::Label testBenchLabel;
-    juce::Label audioDeviceLabel;
+    juce::TextButton audioSettingsButton { "Audio/MIDI Settings..." };
     juce::Label midiInputLabel;
     juce::Label midiOutputLabel;
-    std::unique_ptr<juce::AudioDeviceSelectorComponent> audioDeviceSelector;
     juce::ComboBox midiInputSelector;
     juce::ComboBox midiOutputSelector;
+
+    juce::TextButton loadDITestButton { "Load DI" };
+    juce::TextButton clearDITestButton { "Clear DI" };
+    juce::ToggleButton enableDITestButton { "Use DI File" };
+    juce::ToggleButton playDITestButton { "Play" };
+    juce::ToggleButton loopDITestButton { "Loop" };
+    juce::Label diStatusLabel;
+    juce::Label diLoopLabel;
+    juce::Rectangle<int> diTimelineArea;
+    std::vector<float> diWavePeaks;
+
+    enum class DITimelineDragMode { none, playhead, loopStart, loopEnd };
+    DITimelineDragMode diTimelineDragMode = DITimelineDragMode::none;
+
     juce::AudioDeviceManager* standaloneDeviceManager = nullptr;
     juce::StringArray midiInputIds;
     juce::StringArray midiOutputIds;
@@ -99,6 +121,7 @@ private:
 
     std::unique_ptr<juce::FileChooser> irChooser;
     std::unique_ptr<juce::FileChooser> profileChooser;
+    std::unique_ptr<juce::FileChooser> diChooser;
 
     std::unique_ptr<ComboAttachment> ampAttachment;
     std::unique_ptr<ChoiceAttachment> guitarProfileAttachment;

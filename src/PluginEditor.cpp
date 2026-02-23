@@ -46,7 +46,7 @@ constexpr std::array<const char*, 3> gateIds {
 BackhouseAmpSimAudioProcessorEditor::BackhouseAmpSimAudioProcessorEditor(BackhouseAmpSimAudioProcessor& p)
     : AudioProcessorEditor(&p), pluginProcessor(p)
 {
-    setSize(1120, 860);
+    setSize(1120, 900);
 
     ampSelector.addItemList({ "Amp 1", "Amp 2", "Amp 3", "Amp 4" }, 1);
     addAndMakeVisible(ampSelector);
@@ -57,6 +57,20 @@ BackhouseAmpSimAudioProcessorEditor::BackhouseAmpSimAudioProcessorEditor(Backhou
         configureKnob(*slider);
         addAndMakeVisible(*slider);
     }
+
+    inputGain.setName("Input Gain");
+    sub.setName("Sub");
+    low.setName("Low");
+    mid.setName("Mid");
+    high.setName("High");
+    presence.setName("Presence");
+    output.setName("Output");
+    gateThreshold.setName("Gate");
+    cabTone.setName("Cab Tone");
+    profilePickupOutput.setName("Pickup Out");
+    profileBrightness.setName("Brightness");
+    profileLowEnd.setName("Low End");
+    profileGateTrim.setName("Gate Trim");
 
     for (auto* editor : { &profile1NameEditor, &profile2NameEditor, &profile3NameEditor })
     {
@@ -108,17 +122,24 @@ BackhouseAmpSimAudioProcessorEditor::BackhouseAmpSimAudioProcessorEditor(Backhou
     testBenchLabel.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(testBenchLabel);
 
-    audioDeviceLabel.setText("Audio Device", juce::dontSendNotification);
     midiInputLabel.setText("MIDI Input", juce::dontSendNotification);
     midiOutputLabel.setText("MIDI Output", juce::dontSendNotification);
-    for (auto* label : { &audioDeviceLabel, &midiInputLabel, &midiOutputLabel })
+    diStatusLabel.setJustificationType(juce::Justification::centredLeft);
+
+    for (auto* label : { &midiInputLabel, &midiOutputLabel, &diStatusLabel, &diLoopLabel })
     {
         label->setJustificationType(juce::Justification::centredLeft);
         addAndMakeVisible(*label);
     }
 
+    addAndMakeVisible(audioSettingsButton);
     addAndMakeVisible(midiInputSelector);
     addAndMakeVisible(midiOutputSelector);
+    addAndMakeVisible(loadDITestButton);
+    addAndMakeVisible(clearDITestButton);
+    addAndMakeVisible(enableDITestButton);
+    addAndMakeVisible(playDITestButton);
+    addAndMakeVisible(loopDITestButton);
 
     midiInputSelector.onChange = [this] {
         if (standaloneDeviceManager == nullptr)
@@ -139,7 +160,41 @@ BackhouseAmpSimAudioProcessorEditor::BackhouseAmpSimAudioProcessorEditor(Backhou
         standaloneDeviceManager->setDefaultMidiOutputDevice(selectedId);
     };
 
+    audioSettingsButton.onClick = [this] {
+        if (standaloneDeviceManager == nullptr)
+            attachStandaloneDeviceManager();
+
+        if (auto* window = dynamic_cast<juce::StandaloneFilterWindow*>(getTopLevelComponent()))
+            window->getPluginHolder()->showAudioSettingsDialog();
+    };
+
+    loadDITestButton.onClick = [this] {
+        diChooser = std::make_unique<juce::FileChooser>("Load raw DI guitar file", juce::File(), "*.wav;*.aiff;*.aif;*.mp3");
+        diChooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                               [this](const juce::FileChooser& chooser) {
+                                   const auto file = chooser.getResult();
+                                   if (!file.existsAsFile())
+                                       return;
+
+                                   pluginProcessor.loadTestDIFile(file);
+                                   updateDITimelineCache();
+                                   refreshTestDISection();
+                               });
+    };
+
+    clearDITestButton.onClick = [this] {
+        pluginProcessor.clearTestDIFile();
+        updateDITimelineCache();
+        refreshTestDISection();
+    };
+
+    enableDITestButton.onClick = [this] { pluginProcessor.setTestDIEnabled(enableDITestButton.getToggleState()); };
+    playDITestButton.onClick = [this] { pluginProcessor.setTestDIPlaying(playDITestButton.getToggleState()); };
+    loopDITestButton.onClick = [this] { pluginProcessor.setTestDILoopEnabled(loopDITestButton.getToggleState()); };
+
     attachStandaloneDeviceManager();
+    updateDITimelineCache();
+    refreshTestDISection();
 #endif
 
     auto& apvts = pluginProcessor.getAPVTS();
@@ -247,6 +302,25 @@ void BackhouseAmpSimAudioProcessorEditor::paint(juce::Graphics& g)
     g.drawText("Backhouse Amp Sim (Profile-Ready Scaffold)", getLocalBounds().removeFromTop(36), juce::Justification::centred);
 }
 
+void BackhouseAmpSimAudioProcessorEditor::paintOverChildren(juce::Graphics& g)
+{
+    g.setColour(juce::Colours::whitesmoke);
+    g.setFont(12.0f);
+
+    auto drawKnobLabel = [&g](const juce::Slider& slider) {
+        auto bounds = slider.getBounds();
+        g.drawFittedText(slider.getName(), bounds.getX(), bounds.getY() - 16, bounds.getWidth(), 14, juce::Justification::centred, 1);
+    };
+
+    for (const auto* slider : { &profilePickupOutput, &profileBrightness, &profileLowEnd, &profileGateTrim,
+                                &inputGain, &sub, &low, &mid, &high, &presence, &output, &gateThreshold, &cabTone })
+        drawKnobLabel(*slider);
+
+   #if JucePlugin_Build_Standalone
+    drawDITimeline(g);
+   #endif
+}
+
 void BackhouseAmpSimAudioProcessorEditor::resized()
 {
     auto area = getLocalBounds().reduced(12);
@@ -291,7 +365,21 @@ void BackhouseAmpSimAudioProcessorEditor::resized()
     profileEditLabel.setBounds(editLabelRow.removeFromLeft(380));
     profileIoStatusLabel.setBounds(editLabelRow.removeFromLeft(480));
 
-    auto profileKnobs = area.removeFromTop(145);
+    area.removeFromTop(4);
+
+#if JucePlugin_Build_Standalone
+    const int minBenchHeight = 110;
+#else
+    const int minBenchHeight = 0;
+#endif
+
+    const int availableHeight = area.getHeight();
+    int profileKnobHeight = juce::jlimit(100, 130, availableHeight / 4);
+    int mainKnobHeight = juce::jlimit(130, 210, availableHeight / 3);
+    if (profileKnobHeight + mainKnobHeight + minBenchHeight + 8 > availableHeight)
+        mainKnobHeight = juce::jmax(145, availableHeight - profileKnobHeight - minBenchHeight - 8);
+
+    auto profileKnobs = area.removeFromTop(profileKnobHeight);
     const int profileColumns = 4;
     const int profileKnobWidth = profileKnobs.getWidth() / profileColumns;
     profilePickupOutput.setBounds(profileKnobs.removeFromLeft(profileKnobWidth).reduced(4));
@@ -301,7 +389,7 @@ void BackhouseAmpSimAudioProcessorEditor::resized()
 
     area.removeFromTop(8);
 
-    auto knobs = area.removeFromTop(380);
+    auto knobs = area.removeFromTop(mainKnobHeight);
     const int columns = 9;
     const int width = knobs.getWidth() / columns;
 
@@ -316,23 +404,33 @@ void BackhouseAmpSimAudioProcessorEditor::resized()
     cabTone.setBounds(knobs.removeFromLeft(width).reduced(4));
 
 #if JucePlugin_Build_Standalone
-    area.removeFromTop(6);
-    auto benchArea = area.removeFromTop(220);
+    area.removeFromTop(4);
+    auto benchArea = area;
     benchArea.reduce(4, 4);
 
-    testBenchLabel.setBounds(benchArea.removeFromTop(26));
+    testBenchLabel.setBounds(benchArea.removeFromTop(24));
 
-    auto midiRow = benchArea.removeFromTop(32);
-    midiInputLabel.setBounds(midiRow.removeFromLeft(88));
-    midiInputSelector.setBounds(midiRow.removeFromLeft(260).reduced(2));
-    midiRow.removeFromLeft(16);
-    midiOutputLabel.setBounds(midiRow.removeFromLeft(95));
-    midiOutputSelector.setBounds(midiRow.removeFromLeft(260).reduced(2));
+    auto topBenchRow = benchArea.removeFromTop(30);
+    audioSettingsButton.setBounds(topBenchRow.removeFromLeft(190).reduced(2));
+    topBenchRow.removeFromLeft(8);
+    midiInputLabel.setBounds(topBenchRow.removeFromLeft(72));
+    midiInputSelector.setBounds(topBenchRow.removeFromLeft(240).reduced(2));
+    topBenchRow.removeFromLeft(8);
+    midiOutputLabel.setBounds(topBenchRow.removeFromLeft(80));
+    midiOutputSelector.setBounds(topBenchRow.removeFromLeft(240).reduced(2));
 
-    benchArea.removeFromTop(6);
-    audioDeviceLabel.setBounds(benchArea.removeFromTop(22));
-    if (audioDeviceSelector != nullptr)
-        audioDeviceSelector->setBounds(benchArea.reduced(2));
+    auto diControlRow = benchArea.removeFromTop(30);
+    loadDITestButton.setBounds(diControlRow.removeFromLeft(90).reduced(2));
+    clearDITestButton.setBounds(diControlRow.removeFromLeft(90).reduced(2));
+    diControlRow.removeFromLeft(8);
+    enableDITestButton.setBounds(diControlRow.removeFromLeft(120));
+    playDITestButton.setBounds(diControlRow.removeFromLeft(80));
+    loopDITestButton.setBounds(diControlRow.removeFromLeft(80));
+
+    benchArea.removeFromTop(2);
+    diStatusLabel.setBounds(benchArea.removeFromTop(20));
+    diTimelineArea = benchArea.removeFromTop(138);
+    diLoopLabel.setBounds(benchArea.removeFromTop(20));
 #endif
 }
 
@@ -350,6 +448,57 @@ void BackhouseAmpSimAudioProcessorEditor::timerCallback()
 #if JucePlugin_Build_Standalone
     if (standaloneDeviceManager == nullptr)
         attachStandaloneDeviceManager();
+
+    updateDITimelineCache();
+    refreshTestDISection();
+#endif
+}
+
+void BackhouseAmpSimAudioProcessorEditor::mouseDown(const juce::MouseEvent& e)
+{
+#if JucePlugin_Build_Standalone
+    if (!diTimelineArea.contains(e.getPosition()) || !pluginProcessor.hasTestDIFile())
+        return;
+
+    const int startX = timelineXFromTime(pluginProcessor.getTestDILoopStartSeconds());
+    const int endX = timelineXFromTime(pluginProcessor.getTestDILoopEndSeconds());
+
+    if (std::abs(e.x - startX) <= 6)
+        diTimelineDragMode = DITimelineDragMode::loopStart;
+    else if (std::abs(e.x - endX) <= 6)
+        diTimelineDragMode = DITimelineDragMode::loopEnd;
+    else
+        diTimelineDragMode = DITimelineDragMode::playhead;
+
+    if (diTimelineDragMode == DITimelineDragMode::playhead)
+        pluginProcessor.setTestDIPositionSeconds(timelineTimeFromX(e.x));
+#endif
+}
+
+void BackhouseAmpSimAudioProcessorEditor::mouseDrag(const juce::MouseEvent& e)
+{
+#if JucePlugin_Build_Standalone
+    if (diTimelineDragMode == DITimelineDragMode::none || !pluginProcessor.hasTestDIFile())
+        return;
+
+    const double draggedTime = timelineTimeFromX(e.x);
+    const double loopStart = pluginProcessor.getTestDILoopStartSeconds();
+    const double loopEnd = pluginProcessor.getTestDILoopEndSeconds();
+
+    if (diTimelineDragMode == DITimelineDragMode::playhead)
+    {
+        pluginProcessor.setTestDIPositionSeconds(draggedTime);
+    }
+    else if (diTimelineDragMode == DITimelineDragMode::loopStart)
+    {
+        pluginProcessor.setTestDILoopRangeSeconds(juce::jmin(draggedTime, loopEnd - 0.01), loopEnd);
+    }
+    else if (diTimelineDragMode == DITimelineDragMode::loopEnd)
+    {
+        pluginProcessor.setTestDILoopRangeSeconds(loopStart, juce::jmax(draggedTime, loopStart + 0.01));
+    }
+
+    refreshTestDISection();
 #endif
 }
 
@@ -461,18 +610,7 @@ void BackhouseAmpSimAudioProcessorEditor::attachStandaloneDeviceManager()
         return;
 
     standaloneDeviceManager = &standaloneWindow->getDeviceManager();
-    audioDeviceSelector = std::make_unique<juce::AudioDeviceSelectorComponent>(*standaloneDeviceManager,
-                                                                                0,
-                                                                                2,
-                                                                                0,
-                                                                                2,
-                                                                                false,
-                                                                                false,
-                                                                                true,
-                                                                                false);
-    addAndMakeVisible(*audioDeviceSelector);
     refreshStandaloneMidiDeviceLists();
-    resized();
 }
 
 void BackhouseAmpSimAudioProcessorEditor::refreshStandaloneMidiDeviceLists()
@@ -526,4 +664,138 @@ void BackhouseAmpSimAudioProcessorEditor::refreshStandaloneMidiDeviceLists()
     }
     midiOutputSelector.setSelectedId(selectedOutput, juce::dontSendNotification);
 }
+
+void BackhouseAmpSimAudioProcessorEditor::updateDITimelineCache()
+{
+    const int points = juce::jmax(256, diTimelineArea.getWidth());
+    diWavePeaks = pluginProcessor.getTestDIWaveformPeaks(points);
+}
+
+void BackhouseAmpSimAudioProcessorEditor::refreshTestDISection()
+{
+    const bool hasFile = pluginProcessor.hasTestDIFile();
+    const double duration = pluginProcessor.getTestDIDurationSeconds();
+
+    enableDITestButton.setToggleState(pluginProcessor.isTestDIEnabled(), juce::dontSendNotification);
+    playDITestButton.setToggleState(pluginProcessor.isTestDIPlaying(), juce::dontSendNotification);
+    loopDITestButton.setToggleState(pluginProcessor.isTestDILoopEnabled(), juce::dontSendNotification);
+
+    const juce::String status = hasFile
+        ? "DI: " + pluginProcessor.getTestDIFileName() + "  (" + juce::String(duration, 2) + "s)"
+        : "DI: no file loaded";
+
+    diStatusLabel.setText(status, juce::dontSendNotification);
+
+    const auto loopStart = pluginProcessor.getTestDILoopStartSeconds();
+    const auto loopEnd = pluginProcessor.getTestDILoopEndSeconds();
+    const auto playhead = pluginProcessor.getTestDIPositionSeconds();
+    diLoopLabel.setText("Loop " + juce::String(loopStart, 2) + "s -> " + juce::String(loopEnd, 2) + "s    Playhead " + juce::String(playhead, 2) + "s", juce::dontSendNotification);
+
+    clearDITestButton.setEnabled(hasFile);
+    playDITestButton.setEnabled(hasFile && pluginProcessor.isTestDIEnabled());
+    repaint(diTimelineArea);
+}
+
+void BackhouseAmpSimAudioProcessorEditor::drawDITimeline(juce::Graphics& g) const
+{
+    if (diTimelineArea.isEmpty())
+        return;
+
+    auto full = diTimelineArea;
+    g.setColour(juce::Colour(0xff334257));
+    g.fillRect(full);
+
+    auto ruler = full.removeFromTop(28);
+    auto lane = full.reduced(0, 2);
+
+    g.setColour(juce::Colour(0xff767f89));
+    g.fillRect(ruler);
+
+    const double duration = juce::jmax(0.1, pluginProcessor.getTestDIDurationSeconds());
+    const double tickSeconds = duration > 120.0 ? 10.0 : 5.0;
+
+    g.setColour(juce::Colours::whitesmoke.withAlpha(0.85f));
+    g.setFont(11.0f);
+    for (double t = 0.0; t <= duration + 0.0001; t += tickSeconds)
+    {
+        const int x = timelineXFromTime(t);
+        g.drawVerticalLine(x, static_cast<float>(ruler.getY() + 12), static_cast<float>(ruler.getBottom()));
+
+        const int minutes = static_cast<int>(t) / 60;
+        const int seconds = static_cast<int>(t) % 60;
+        g.drawText(juce::String(minutes) + ":" + juce::String(seconds).paddedLeft('0', 2), x + 2, ruler.getY() + 2, 44, 12, juce::Justification::left);
+    }
+
+    g.setColour(juce::Colour(0xff234a66));
+    g.fillRect(lane);
+    g.setColour(juce::Colour(0x66b7d5ea));
+    g.drawLine(static_cast<float>(lane.getX()), static_cast<float>(lane.getCentreY()), static_cast<float>(lane.getRight()), static_cast<float>(lane.getCentreY()), 1.0f);
+
+    const int rows = 3;
+    g.setColour(juce::Colours::white.withAlpha(0.12f));
+    for (int r = 1; r <= rows; ++r)
+    {
+        const int y = lane.getY() + (lane.getHeight() * r) / (rows + 1);
+        g.drawHorizontalLine(y, static_cast<float>(lane.getX()), static_cast<float>(lane.getRight()));
+    }
+
+    if (!diWavePeaks.empty())
+    {
+        const int width = lane.getWidth();
+        const int n = static_cast<int>(diWavePeaks.size());
+        g.setColour(juce::Colour(0xffa3d7f3));
+
+        for (int i = 0; i < width; ++i)
+        {
+            const int peakIdx = juce::jlimit(0, n - 1, (i * n) / juce::jmax(1, width));
+            const float peak = diWavePeaks[static_cast<size_t>(peakIdx)];
+            const float half = peak * (lane.getHeight() * 0.46f);
+            const float x = static_cast<float>(lane.getX() + i);
+            const float cy = static_cast<float>(lane.getCentreY());
+            g.drawLine(x, cy - half, x, cy + half, 1.0f);
+        }
+    }
+
+    const double loopStart = pluginProcessor.getTestDILoopStartSeconds();
+    const double loopEnd = pluginProcessor.getTestDILoopEndSeconds();
+    const int loopStartX = timelineXFromTime(loopStart);
+    const int loopEndX = timelineXFromTime(loopEnd);
+
+    g.setColour(juce::Colour(0x2259d36f));
+    g.fillRect(juce::Rectangle<int>(loopStartX, lane.getY(), juce::jmax(1, loopEndX - loopStartX), lane.getHeight()));
+
+    g.setColour(juce::Colour(0xff58e06d));
+    g.drawVerticalLine(loopStartX, static_cast<float>(lane.getY()), static_cast<float>(lane.getBottom()));
+    g.drawVerticalLine(loopEndX, static_cast<float>(lane.getY()), static_cast<float>(lane.getBottom()));
+
+    const int playheadX = timelineXFromTime(pluginProcessor.getTestDIPositionSeconds());
+    g.setColour(juce::Colour(0xfff24d4d));
+    g.drawVerticalLine(playheadX, static_cast<float>(ruler.getY()), static_cast<float>(lane.getBottom()));
+
+    g.setColour(juce::Colour(0xffe8eff4));
+    g.drawRect(lane, 1);
+}
+
+double BackhouseAmpSimAudioProcessorEditor::timelineTimeFromX(int x) const
+{
+    const double duration = juce::jmax(0.1, pluginProcessor.getTestDIDurationSeconds());
+    const auto lane = diTimelineArea.withTrimmedTop(28).reduced(0, 2);
+    if (lane.getWidth() <= 1)
+        return 0.0;
+
+    const double norm = juce::jlimit(0.0, 1.0, (x - lane.getX()) / static_cast<double>(lane.getWidth() - 1));
+    return norm * duration;
+}
+
+int BackhouseAmpSimAudioProcessorEditor::timelineXFromTime(double seconds) const
+{
+    const double duration = juce::jmax(0.1, pluginProcessor.getTestDIDurationSeconds());
+    const auto lane = diTimelineArea.withTrimmedTop(28).reduced(0, 2);
+    if (lane.getWidth() <= 1)
+        return lane.getX();
+
+    const double norm = juce::jlimit(0.0, 1.0, seconds / duration);
+    return lane.getX() + static_cast<int>(norm * (lane.getWidth() - 1));
+}
+
 #endif

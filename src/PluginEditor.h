@@ -84,6 +84,7 @@ private:
     juce::ComboBox ampSelector;
     juce::ComboBox wowModeSelector;
     juce::ComboBox outputCompModeSelector;
+    juce::ToggleButton bypassButton { "BYPASS" };
     juce::ToggleButton inputBoostButton { "Input Boost" };
     juce::ToggleButton amp2HiwattButton { "Amp 2 Hiwatt" };
     juce::ToggleButton amp4TightButton { "Amp 4 Tight" };
@@ -368,6 +369,7 @@ private:
     std::unique_ptr<ComboAttachment> outputCompModeAttachment;
     std::unique_ptr<ChoiceAttachment> cabSpeakerBChoiceAttachment;
     std::unique_ptr<ChoiceAttachment> cabMicBChoiceAttachment;
+    std::unique_ptr<ButtonAttachment> bypassAttachment;
     std::unique_ptr<ButtonAttachment> inputBoostAttachment;
     std::unique_ptr<ButtonAttachment> amp2HiwattAttachment;
     std::unique_ptr<ButtonAttachment> amp4TightAttachment;

@@ -351,6 +351,7 @@ BackhouseAmpSimAudioProcessorEditor::BackhouseAmpSimAudioProcessorEditor(Backhou
         addAndMakeVisible(*editor);
     }
 
+    addAndMakeVisible(bypassButton);
     addAndMakeVisible(inputBoostButton);
     addAndMakeVisible(amp2HiwattButton);
     addAndMakeVisible(amp4TightButton);
@@ -417,6 +418,9 @@ BackhouseAmpSimAudioProcessorEditor::BackhouseAmpSimAudioProcessorEditor(Backhou
         toggle->setColour(juce::ToggleButton::tickColourId, accentWarm);
         toggle->setColour(juce::ToggleButton::textColourId, textMain);
     }
+
+    bypassButton.setColour(juce::ToggleButton::tickColourId, juce::Colour(0xffff3333));
+    bypassButton.setColour(juce::ToggleButton::textColourId, textMain);
 
     for (auto& button : rigModuleButtons)
     {
@@ -849,6 +853,7 @@ BackhouseAmpSimAudioProcessorEditor::BackhouseAmpSimAudioProcessorEditor(Backhou
         ampTypeAttachment->sendInitialUpdate();
     }
 
+    bypassAttachment = std::make_unique<ButtonAttachment>(apvts, "masterBypass", bypassButton);
     inputBoostAttachment = std::make_unique<ButtonAttachment>(apvts, "inputBoost", inputBoostButton);
     amp2HiwattAttachment = std::make_unique<ButtonAttachment>(apvts, "amp2Hiwatt", amp2HiwattButton);
     amp4TightAttachment = std::make_unique<ButtonAttachment>(apvts, "amp4Tight", amp4TightButton);
@@ -1160,7 +1165,7 @@ void BackhouseAmpSimAudioProcessorEditor::paint(juce::Graphics& g)
     };
 
     // Top row panel: amp selector + profile selectors
-    drawPanel(groupBounds({ &ampSelector, &profileNeutralButton, &profile1Button, &profile2Button, &profile3Button, &pitchLabel, &uiModeButton,
+    drawPanel(groupBounds({ &bypassButton, &ampSelector, &profileNeutralButton, &profile1Button, &profile2Button, &profile3Button, &pitchLabel, &uiModeButton,
                             &tabAmpButton, &tabTunerButton, &tabStompsButton, &tabCabButton, &tabSpaceButton, &tabPostColorButton, &tabMidiButton }));
     // Status/controls row panel
     drawPanel(groupBounds({ &inputBoostButton, &cabEnabledButton, &reverbEnabledButton,
@@ -1358,6 +1363,8 @@ void BackhouseAmpSimAudioProcessorEditor::paint(juce::Graphics& g)
     tabTunerButton.setBounds(topRow.removeFromRight(68).reduced(2));
     topRow.removeFromRight(10);
 
+    bypassButton.setBounds(topRow.removeFromLeft(76).reduced(2));
+    topRow.removeFromLeft(6);
     ampSelector.setBounds(topRow.removeFromLeft(120).reduced(0, 4));
     topRow.removeFromLeft(8);
     profileNeutralButton.setBounds(topRow.removeFromLeft(76).reduced(2));

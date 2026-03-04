@@ -96,6 +96,7 @@ static constexpr auto outputEqHpEnabled = "outputEqHpEnabled";
 static constexpr auto outputEqHpHz = "outputEqHpHz";
 static constexpr auto outputEqLpEnabled = "outputEqLpEnabled";
 static constexpr auto outputEqLpHz = "outputEqLpHz";
+static constexpr auto masterBypass = "masterBypass";
 static constexpr auto amp1TremEnabled = "amp1TremEnabled";
 static constexpr auto amp1TremRate = "amp1TremRate";
 static constexpr auto amp1TremDepth = "amp1TremDepth";
@@ -394,6 +395,12 @@ void BackhouseAmpSimAudioProcessor::processBlock(juce::AudioBuffer<float>& buffe
 
     renderTestDI(buffer);
     updateMeterLevel(inputMeterLevel, computePeakLevel(buffer, totalIn));
+
+    if (apvts.getRawParameterValue(ids::masterBypass)->load() > 0.5f)
+    {
+        updateMeterLevel(outputMeterLevel, computePeakLevel(buffer, totalOut));
+        return;
+    }
 
     // FCB1010-friendly WOW MIDI mapping:
     // CC27 = expression A (position), CC7 = expression B (mix), CC64 = stomp gate.
@@ -1106,6 +1113,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout BackhouseAmpSimAudioProcesso
     params.push_back(std::make_unique<juce::AudioParameterBool>(ids::amp1TremEnabled, "Amp1 Trem Enabled", false));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(ids::amp1TremRate, "Amp1 Trem Rate", juce::NormalisableRange<float>(0.20f, 12.0f, 0.001f), 3.2f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(ids::amp1TremDepth, "Amp1 Trem Depth", juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.45f));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(ids::masterBypass, "Master Bypass", false));
     params.push_back(std::make_unique<juce::AudioParameterBool>(ids::amp2Hiwatt, "Amp 2 Hiwatt", false));
     params.push_back(std::make_unique<juce::AudioParameterBool>(ids::amp4Tight, "Amp 4 Tight", true));
     params.push_back(std::make_unique<juce::AudioParameterBool>(ids::amp4LowOctave, "Amp 4 Low Octave", false));

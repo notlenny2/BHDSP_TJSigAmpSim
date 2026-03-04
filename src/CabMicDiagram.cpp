@@ -47,8 +47,8 @@ void CabMicDiagram::paint (juce::Graphics& g)
     const bool offAxisB = apvts.getRawParameterValue ("cabMicBOffAxis")->load() > 0.5f;
     const float blendNorm = apvts.getRawParameterValue ("cabMicBlend")->load();
 
-    const int slotW   = juce::jmin (280, (getWidth() - 50) / 2);
-    const int slotH   = juce::jmin (170, getHeight() - 30);
+    const int slotW   = juce::jmin (400, (getWidth() - 60) / 2);
+    const int slotH   = juce::jmin (240, getHeight() - 40);
     const int diagCx  = getWidth() / 2;
     const int slotGap = 30;
     const int aSlotX  = diagCx - slotGap / 2 - slotW;
@@ -79,9 +79,9 @@ void CabMicDiagram::paint (juce::Graphics& g)
         g.setColour (spkCol.withAlpha (0.18f));
         g.fillRoundedRectangle ((float) sx + 8.0f, (float) sy + 7.0f, 24.0f, 18.0f, 4.0f);
         if (dharmaPunkTypeface)
-            g.setFont (juce::Font (juce::FontOptions (dharmaPunkTypeface).withHeight (17.0f)));
+            g.setFont (juce::Font (juce::FontOptions (dharmaPunkTypeface).withHeight (21.0f)));
         else
-            g.setFont (16.0f);
+            g.setFont (20.0f);
         g.setColour (spkCol);
         g.drawText (chanLabel, sx + 8, sy + 6, 26, 22, juce::Justification::centred, true);
 
@@ -165,21 +165,21 @@ void CabMicDiagram::paint (juce::Graphics& g)
         const int labelX = sx + (int) ((float) sw * 0.65f);
         const int labelW = sw - (int) ((float) sw * 0.65f) - 8;
         if (dharmaPunkTypeface)
-            g.setFont (juce::Font (juce::FontOptions (dharmaPunkTypeface).withHeight (14.0f)));
+            g.setFont (juce::Font (juce::FontOptions (dharmaPunkTypeface).withHeight (18.0f)));
         else
-            g.setFont (14.0f);
+            g.setFont (18.0f);
         g.setColour (spkCol.brighter (0.1f));
-        g.drawText (spkName, labelX, (int) coneCy - 30, labelW, 17, juce::Justification::centredLeft, true);
+        g.drawText (spkName, labelX, (int) coneCy - 38, labelW, 22, juce::Justification::centredLeft, true);
         g.setColour (micCol.brighter (0.1f));
-        g.drawText (micName, labelX, (int) coneCy - 10, labelW, 17, juce::Justification::centredLeft, true);
+        g.drawText (micName, labelX, (int) coneCy - 12, labelW, 22, juce::Justification::centredLeft, true);
 
         g.setColour (showOffAxis ? micCol.withAlpha (0.65f) : textMuted.withAlpha (0.5f));
         if (punkaholicTypeface)
-            g.setFont (juce::Font (juce::FontOptions (punkaholicTypeface).withHeight (12.0f)));
+            g.setFont (juce::Font (juce::FontOptions (punkaholicTypeface).withHeight (15.0f)));
         else
-            g.setFont (12.0f);
+            g.setFont (15.0f);
         g.drawText (showOffAxis ? "off-axis" : "on-axis",
-                    labelX, (int) coneCy + 10, labelW, 15, juce::Justification::centredLeft, true);
+                    labelX, (int) coneCy + 16, labelW, 18, juce::Justification::centredLeft, true);
 
         // Hint ring when hovering
         const DragTarget hoverCheck = (slotIdx == 0) ? DragTarget::MicA : DragTarget::MicB;

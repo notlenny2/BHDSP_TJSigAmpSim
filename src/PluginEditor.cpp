@@ -1626,7 +1626,7 @@ void BackhouseAmpSimAudioProcessorEditor::paint(juce::Graphics& g)
             if (panel.getHeight() > 80)
             {
                 panel.removeFromTop(10);
-                auto diagArea = panel.removeFromTop(juce::jmin(210, panel.getHeight() - 4));
+                auto diagArea = panel.removeFromTop(juce::jmin(300, panel.getHeight() - 4));
                 cabMicDiagram->setBounds(diagArea);
             }
         }

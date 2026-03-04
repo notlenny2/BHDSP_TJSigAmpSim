@@ -1017,7 +1017,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout BackhouseAmpSimAudioProcesso
     using Parameter = std::unique_ptr<juce::RangedAudioParameter>;
     std::vector<Parameter> params;
 
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(ids::ampType, "Amp", juce::StringArray { "Amp 1", "Amp 2", "Amp 3", "Amp 4" }, 0));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(ids::ampType, "Amp", juce::StringArray { "Sparkle", "Grit", "Thrash", "Heavy" }, 0));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(ids::guitarProfile, "Guitar Profile", juce::StringArray { "Neutral", "Profile 1", "Profile 2", "Profile 3" }, 0));
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(ids::inputGain, "Input Gain", juce::NormalisableRange<float>(-24.0f, 24.0f, 0.1f), 0.0f));

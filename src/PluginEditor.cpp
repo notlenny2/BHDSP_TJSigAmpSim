@@ -144,7 +144,7 @@ BackhouseAmpSimAudioProcessorEditor::BackhouseAmpSimAudioProcessorEditor(Backhou
     // Load company logo
     logoImage = juce::ImageCache::getFromMemory(BinaryData::bhp_logo_png, BinaryData::bhp_logo_pngSize);
 
-    ampSelector.addItemList({ "Amp 1", "Amp 2", "Amp 3", "Amp 4" }, 1);
+    ampSelector.addItemList({ "Sparkle", "Grit", "Thrash", "Heavy" }, 1);
     outputCompModeSelector.addItemList({ "1176", "Opto" }, 1);
     addAndMakeVisible(ampSelector);
     addAndMakeVisible(tabAmpButton);

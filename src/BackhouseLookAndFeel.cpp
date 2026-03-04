@@ -1,4 +1,5 @@
 #include "BackhouseLookAndFeel.h"
+#include "BinaryData.h"
 #include <cmath>
 
 namespace
@@ -8,7 +9,19 @@ const juce::Colour bhlPanelOutline (0xff22253a);
 const juce::Colour bhlTextMain     (0xffecf0ff);
 } // namespace
 
-BackhouseLookAndFeel::BackhouseLookAndFeel() = default;
+BackhouseLookAndFeel::BackhouseLookAndFeel()
+{
+    dharmaPunkTypeface = juce::Typeface::createSystemTypefaceFor (
+        BinaryData::Dharma_Punk_ttf, BinaryData::Dharma_Punk_ttfSize);
+}
+
+juce::Font BackhouseLookAndFeel::getComboBoxFont (juce::ComboBox& box)
+{
+    if (dharmaPunkTypeface != nullptr)
+        return juce::Font (juce::FontOptions{}.withTypeface (dharmaPunkTypeface)
+                                              .withHeight (static_cast<float> (box.getHeight()) * 0.58f));
+    return juce::Font (static_cast<float> (box.getHeight()) * 0.58f);
+}
 
 void BackhouseLookAndFeel::drawRotarySlider (juce::Graphics& g,
                                               int x, int y, int width, int height,

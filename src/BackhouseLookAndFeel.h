@@ -24,4 +24,9 @@ public:
     void drawButtonText (juce::Graphics& g, juce::TextButton& button,
                          bool shouldDrawButtonAsHighlighted,
                          bool shouldDrawButtonAsDown) override;
+
+    juce::Font getComboBoxFont (juce::ComboBox& box) override;
+
+private:
+    juce::Typeface::Ptr dharmaPunkTypeface;
 };

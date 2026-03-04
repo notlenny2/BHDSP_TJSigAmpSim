@@ -144,6 +144,9 @@ BackhouseAmpSimAudioProcessorEditor::BackhouseAmpSimAudioProcessorEditor(Backhou
     // Load company logo
     logoImage = juce::ImageCache::getFromMemory(BinaryData::bhp_logo_png, BinaryData::bhp_logo_pngSize);
 
+    cabMicDiagram = std::make_unique<CabMicDiagram>(pluginProcessor.getAPVTS(), dharmaPunkTypeface, punkaholicTypeface);
+    addAndMakeVisible(*cabMicDiagram);
+
     ampSelector.addItemList({ "Sparkle", "Grit", "Thrash", "Heavy" }, 1);
     outputCompModeSelector.addItemList({ "1176", "Opto" }, 1);
     addAndMakeVisible(ampSelector);
@@ -1619,189 +1622,12 @@ void BackhouseAmpSimAudioProcessorEditor::paint(juce::Graphics& g)
             cabKnobRow.removeFromLeft(12);
             cabTone.setBounds(cabKnobRow.removeFromLeft(110).reduced(4));
 
-            // ── Visual cab diagram ──────────────────────────────────────────
+            // ── Visual cab diagram (interactive component) ──────────────────
             if (panel.getHeight() > 80)
             {
                 panel.removeFromTop(10);
                 auto diagArea = panel.removeFromTop(juce::jmin(210, panel.getHeight() - 4));
-
-                // Per-speaker accent colour (makes each type visually distinct)
-                constexpr juce::uint32 spkColours[5] = {
-                    0xff44cc88,  // Greenback — green
-                    0xffff8844,  // V30 — orange
-                    0xffe8c87a,  // Creamback — cream/amber
-                    0xff4499ff,  // G12T-75 — blue
-                    0xffaa66ff,  // Jensen — purple
-                };
-                // Per-mic accent colour
-                constexpr juce::uint32 micColours[5] = {
-                    0xff00d4ff,  // SM57 — cyan
-                    0xff4477dd,  // U87 — blue
-                    0xff9933cc,  // U47 FET — violet
-                    0xffcc6b2e,  // Royer 122 — amber/ribbon
-                    0xff3dcc66,  // MD421 — green
-                };
-                constexpr const char* spkShort[5] = { "Greenback", "V30", "Creamback", "G12T-75", "Jensen" };
-                constexpr const char* micShort[5] = { "SM57", "U87", "U47 FET", "Royer 122", "MD421" };
-
-                auto& apvts = pluginProcessor.getAPVTS();
-                const int selSpkA  = juce::jlimit(0, 4, static_cast<int>(apvts.getRawParameterValue("cabSpeaker")->load()));
-                const int selMicA  = juce::jlimit(0, 4, static_cast<int>(apvts.getRawParameterValue("cabMic")->load()));
-                const int selSpkB  = juce::jlimit(0, 4, static_cast<int>(apvts.getRawParameterValue("cabSpeakerB")->load()));
-                const int selMicB  = juce::jlimit(0, 4, static_cast<int>(apvts.getRawParameterValue("cabMicB")->load()));
-                const bool offAxisA = apvts.getRawParameterValue("cabMicAOffAxis")->load() > 0.5f;
-                const bool offAxisB = apvts.getRawParameterValue("cabMicBOffAxis")->load() > 0.5f;
-
-                const double blendMin = cabMicBlend.getMinimum();
-                const double blendMax = cabMicBlend.getMaximum();
-                const float blendNorm = (blendMax > blendMin)
-                    ? static_cast<float>((cabMicBlend.getValue() - blendMin) / (blendMax - blendMin))
-                    : 0.5f;
-
-                const int slotW = juce::jmin(280, (diagArea.getWidth() - 50) / 2);
-                const int slotH = juce::jmin(170, diagArea.getHeight() - 30);
-                const int diagCx = diagArea.getCentreX();
-                const int slotGap = 30;
-                const int aSlotX = diagCx - slotGap / 2 - slotW;
-                const int bSlotX = diagCx + slotGap / 2;
-                const int slotY  = diagArea.getY() + 4;
-
-                auto drawCabSlot = [&](int sx, int sy, int sw, int sh,
-                                       const char* spkName, const char* micName,
-                                       bool offAxis,
-                                       juce::Colour spkCol, juce::Colour micCol,
-                                       const juce::String& chanLabel)
-                {
-                    const auto sf = juce::Rectangle<float>((float)sx, (float)sy, (float)sw, (float)sh);
-
-                    // Slot background + border
-                    g.setColour(juce::Colour(0xff0e1018));
-                    g.fillRoundedRectangle(sf, 12.0f);
-                    g.setColour(spkCol.withAlpha(0.45f));
-                    g.drawRoundedRectangle(sf.reduced(0.5f), 12.0f, 1.6f);
-
-                    // Channel label badge top-left
-                    g.setColour(spkCol.withAlpha(0.18f));
-                    g.fillRoundedRectangle((float)sx + 8.0f, (float)sy + 7.0f, 24.0f, 18.0f, 4.0f);
-                    if (dharmaPunkTypeface != nullptr)
-                        g.setFont(juce::Font(juce::FontOptions(dharmaPunkTypeface).withHeight(17.0f)));
-                    else
-                        g.setFont(16.0f);
-                    g.setColour(spkCol);
-                    g.drawText(chanLabel, sx + 8, sy + 6, 26, 22, juce::Justification::centred, true);
-
-                    // Speaker cone — concentric ellipses, centred in left 55% of slot
-                    const float coneCx = (float)sx + (float)sw * 0.40f;
-                    const float coneCy = (float)sy + (float)sh * 0.52f;
-                    const float maxR   = juce::jmin((float)sw * 0.32f, (float)sh * 0.43f);
-
-                    // Shadow/glow halo
-                    g.setColour(spkCol.withAlpha(0.06f));
-                    g.fillEllipse(coneCx - maxR * 1.1f, coneCy - maxR * 1.1f, maxR * 2.2f, maxR * 2.2f);
-
-                    // Cone rings (outer → inner, increasing opacity)
-                    struct Ring { float frac; float alpha; };
-                    constexpr Ring rings[] = { {1.00f,0.14f},{0.78f,0.22f},{0.58f,0.32f},{0.38f,0.45f},{0.20f,0.62f} };
-                    for (const auto& rng : rings)
-                    {
-                        const float r = maxR * rng.frac;
-                        g.setColour(spkCol.withAlpha(rng.alpha));
-                        g.drawEllipse(coneCx - r, coneCy - r, r * 2.0f, r * 2.0f, 1.1f);
-                    }
-                    // Dust cap (solid fill)
-                    const float dustR = maxR * 0.11f;
-                    g.setColour(spkCol.withAlpha(0.70f));
-                    g.fillEllipse(coneCx - dustR, coneCy - dustR, dustR * 2.0f, dustR * 2.0f);
-
-                    // Mic position: on-axis = center, off-axis = shifted toward upper-right
-                    const float micDist  = offAxis ? maxR * 0.54f : 0.0f;
-                    const float micAng   = juce::MathConstants<float>::pi * 0.3f;  // ~54° from top
-                    const float micX     = coneCx + micDist * std::sin(micAng);
-                    const float micY     = coneCy - micDist * std::cos(micAng);
-
-                    // Mic capsule body
-                    const float mh = 16.0f, mw = 6.0f;
-                    if (offAxis)
-                    {
-                        // Show off-axis dashed line from center to mic
-                        g.setColour(micCol.withAlpha(0.28f));
-                        float dashLengths[] = { 4.0f, 3.0f };
-                        g.drawDashedLine(juce::Line<float>(coneCx, coneCy, micX, micY),
-                                         dashLengths, 2, 0.8f);
-                    }
-                    // Glow
-                    g.setColour(micCol.withAlpha(0.22f));
-                    g.fillEllipse(micX - mw, micY - mh * 0.5f - 2.0f, mw * 2.0f, mh + 4.0f);
-                    // Capsule fill
-                    g.setColour(micCol.withAlpha(0.85f));
-                    g.fillRoundedRectangle(micX - mw * 0.5f, micY - mh * 0.5f, mw, mh, mw * 0.5f);
-                    g.setColour(micCol.brighter(0.3f));
-                    g.drawRoundedRectangle(micX - mw * 0.5f, micY - mh * 0.5f, mw, mh, mw * 0.5f, 1.0f);
-                    // Stand
-                    g.setColour(micCol.withAlpha(0.40f));
-                    g.drawLine(micX, micY + mh * 0.5f, micX, micY + mh, 1.0f);
-
-                    // Speaker + mic name labels (right portion of slot)
-                    const int labelX = sx + (int)((float)sw * 0.65f);
-                    const int labelW = sw - (int)((float)sw * 0.65f) - 8;
-
-                    if (dharmaPunkTypeface != nullptr)
-                        g.setFont(juce::Font(juce::FontOptions(dharmaPunkTypeface).withHeight(14.0f)));
-                    else
-                        g.setFont(14.0f);
-                    g.setColour(spkCol.brighter(0.1f));
-                    g.drawText(spkName, labelX, (int)coneCy - 30, labelW, 17, juce::Justification::centredLeft, true);
-
-                    g.setColour(micCol.brighter(0.1f));
-                    g.drawText(micName, labelX, (int)coneCy - 10, labelW, 17, juce::Justification::centredLeft, true);
-
-                    g.setColour(offAxis ? micCol.withAlpha(0.65f) : textMuted.withAlpha(0.5f));
-                    if (punkaholicTypeface != nullptr)
-                        g.setFont(juce::Font(juce::FontOptions(punkaholicTypeface).withHeight(12.0f)));
-                    else
-                        g.setFont(12.0f);
-                    g.drawText(offAxis ? "off-axis" : "on-axis", labelX, (int)coneCy + 10, labelW, 15, juce::Justification::centredLeft, true);
-                };
-
-                const juce::Colour spkColA(spkColours[selSpkA]);
-                const juce::Colour micColA(micColours[selMicA]);
-                const juce::Colour spkColB(spkColours[selSpkB]);
-                const juce::Colour micColB(micColours[selMicB]);
-
-                drawCabSlot(aSlotX, slotY, slotW, slotH, spkShort[selSpkA], micShort[selMicA], offAxisA, spkColA, micColA, "A");
-                drawCabSlot(bSlotX, slotY, slotW, slotH, spkShort[selSpkB], micShort[selMicB], offAxisB, spkColB, micColB, "B");
-
-                // A/B blend bar below the slots
-                const int barY = slotY + slotH + 10;
-                const int barW = slotW * 2 + slotGap;
-                const int barH = 7;
-                const float aFrac = 1.0f - blendNorm;
-                const float bFrac = blendNorm;
-
-                g.setColour(juce::Colour(0xff1a1c28));
-                g.fillRoundedRectangle((float)aSlotX, (float)barY, (float)barW, (float)barH, 3.5f);
-                if (aFrac > 0.01f)
-                {
-                    g.setColour(spkColA.withAlpha(0.75f));
-                    g.fillRoundedRectangle((float)aSlotX, (float)barY, barW * aFrac, (float)barH, 3.5f);
-                }
-                if (bFrac > 0.01f)
-                {
-                    g.setColour(spkColB.withAlpha(0.75f));
-                    g.fillRoundedRectangle((float)(aSlotX + barW) - barW * bFrac, (float)barY, barW * bFrac, (float)barH, 3.5f);
-                }
-                g.setColour(panelOutline);
-                g.drawRoundedRectangle((float)aSlotX, (float)barY, (float)barW, (float)barH, 3.5f, 0.8f);
-
-                // A / B labels beside the blend bar
-                if (punkaholicTypeface != nullptr)
-                    g.setFont(juce::Font(juce::FontOptions(punkaholicTypeface).withHeight(9.5f)));
-                else
-                    g.setFont(9.5f);
-                g.setColour(spkColA.withAlpha(0.8f));
-                g.drawText("A", aSlotX - 16, barY - 1, 14, barH + 2, juce::Justification::centredRight, true);
-                g.setColour(spkColB.withAlpha(0.8f));
-                g.drawText("B", aSlotX + barW + 2, barY - 1, 14, barH + 2, juce::Justification::centredLeft, true);
+                cabMicDiagram->setBounds(diagArea);
             }
         }
         else if (activeTabIndex == 5)
@@ -2739,6 +2565,8 @@ void BackhouseAmpSimAudioProcessorEditor::refreshTabVisibility()
                      static_cast<juce::Component*>(&wahEnabledButton),
                      static_cast<juce::Component*>(&wahPosition), static_cast<juce::Component*>(&wahMix) })
         c->setVisible(stompsTab);
+
+    cabMicDiagram->setVisible(cabTab);
 
     for (auto* c : { static_cast<juce::Component*>(&cabSpeakerLabel), static_cast<juce::Component*>(&cabMicLabel),
                      static_cast<juce::Component*>(&speakerGreenbackButton), static_cast<juce::Component*>(&speakerV30Button), static_cast<juce::Component*>(&speakerCreambackButton),

@@ -11,6 +11,7 @@
 
 #include "PluginProcessor.h"
 #include "BackhouseLookAndFeel.h"
+#include "CabMicDiagram.h"
 
 class BackhouseAmpSimAudioProcessorEditor final : public juce::AudioProcessorEditor,
                                                   private juce::Timer
@@ -469,6 +470,8 @@ private:
     juce::Typeface::Ptr dharmaPunkTypeface;
     juce::Typeface::Ptr punkaholicTypeface;
     juce::Image logoImage;
+
+    std::unique_ptr<CabMicDiagram> cabMicDiagram;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BackhouseAmpSimAudioProcessorEditor)
 };

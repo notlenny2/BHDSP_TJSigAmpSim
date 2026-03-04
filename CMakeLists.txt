@@ -54,6 +54,8 @@ target_sources(BackhouseAmpSim
     src/PluginEditor.h
     src/BackhouseLookAndFeel.cpp
     src/BackhouseLookAndFeel.h
+    src/CabMicDiagram.cpp
+    src/CabMicDiagram.h
     dsp/AmpEngine.cpp
     dsp/AmpEngine.h
     dsp/NoiseGate.cpp
